@@ -14,6 +14,7 @@ interface Config {
   theme?: string;
   serverUrl?: string;
   ctx?: string;
+  usefulWeb?: boolean;
 }
 
 export function getInjectConfig(): Config {
@@ -24,7 +25,11 @@ export function getInjectConfig(): Config {
   const params: Config = {};
 
   new URLSearchParams(location.search).forEach((value, key) => {
-    params[key as keyof Config] = value;
+    if (key === 'usefulWeb') {
+      params.usefulWeb = value === '1';
+    } else {
+      params[key as keyof Config] = value as never;
+    }
   });
 
   params.serverUrl = params.serverUrl || location.host;

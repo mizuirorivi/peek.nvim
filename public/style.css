@@ -13,6 +13,10 @@ body::-webkit-scrollbar-thumb {
 .peek-body {
   margin: 0;
   padding: 0;
+  transition: padding-left 0.2s ease;
+}
+body.peek-panel-open {
+  padding-left: 324px;
 }
 .markdown-body {
   box-sizing: border-box;
@@ -179,14 +183,13 @@ div[data-graph='mermaid']:has(> .peek-loader) {
 #peek-sidebar {
   position: fixed;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 4px;
   background: rgba(40, 40, 40, 0.9);
-  border-radius: 0 6px 6px 0;
+  border-radius: 0 0 6px 0;
   z-index: 1000;
 }
 .peek-sidebar-btn {
@@ -210,13 +213,13 @@ div[data-graph='mermaid']:has(> .peek-loader) {
 }
 .peek-side-panel {
   position: fixed;
-  left: 52px;
+  left: 44px;
   top: 0;
   width: 280px;
   height: 100vh;
   background: #1e1e1e;
   border-right: 1px solid #444;
-  transform: translateX(-340px);
+  transform: translateX(-280px);
   transition: transform 0.2s ease;
   z-index: 999;
   display: flex;
@@ -316,6 +319,7 @@ div[data-graph='mermaid']:has(> .peek-loader) {
 .peek-tree-children {
   display: none;
 }
-.peek-tree-children > .peek-tree-item {
-  padding-left: 24px;
+.peek-tree-updir {
+  color: #aaa;
+  font-style: italic;
 }

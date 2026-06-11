@@ -1,7 +1,7 @@
 import { Webview } from 'https://deno.land/x/webview@0.7.6/mod.ts';
 import { parseArgs } from 'https://deno.land/std@0.217.0/cli/parse_args.ts';
 
-const { url, theme, serverUrl } = parseArgs(Deno.args);
+const { url, theme, serverUrl, 'useful-web': usefulWebArg } = parseArgs(Deno.args);
 
 const webview = new Webview();
 
@@ -11,6 +11,7 @@ webview.init(`
   window.peek = {};
   window.peek.theme = "${theme}"
   window.peek.serverUrl = "${serverUrl}"
+  window.peek.usefulWeb = ${!!usefulWebArg}
 `);
 
 webview.navigate(url);

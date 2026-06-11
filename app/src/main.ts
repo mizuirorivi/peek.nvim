@@ -6,6 +6,7 @@ import log from './log.ts';
 import { render } from './markdownit.ts';
 
 const __args = parseArgs(Deno.args);
+const usefulWeb = !!__args['useful-web'];
 const __dirname = dirname(new URL(import.meta.url).pathname);
 
 const DENO_ENV = Deno.env.get('DENO_ENV');
@@ -16,38 +17,16 @@ const version = Deno.version;
 logger.info(`DENO_ENV: ${DENO_ENV}`, ...Deno.args);
 logger.info(`deno: ${version.deno} v8: ${version.v8} typescript: ${version.typescript}`);
 
-interface FileEntry {
-  name: string;
-  path: string;
-  isDir: boolean;
-}
-
-async function listDir(dirPath: string): Promise<FileEntry[]> {
-  const entries: FileEntry[] = [];
-  for await (const entry of Deno.readDir(dirPath)) {
-    if (entry.name.startsWith('.')) continue;
-    entries.push({ name: entry.name, path: dirPath + '/' + entry.name, isDir: entry.isDirectory });
-  }
-  entries.sort((a, b) => {
-    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
-    return a.name.localeCompare(b.name);
-  });
-  return entries;
-}
-
 function setupClientMessages(socket: WebSocket) {
   const encoder = new TextEncoder();
-  socket.addEventListener('message', async (event) => {
+  socket.addEventListener('message', (event) => {
     try {
       const msg = JSON.parse(typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data));
       switch (msg.action) {
-        case 'listdir': {
-          const entries = await listDir(msg.path);
-          socket.send(encoder.encode(JSON.stringify({ action: 'dirlist', path: msg.path, entries })));
-          break;
-        }
+        case 'listdir':
         case 'openfile': {
-          Deno.stdout.writeSync(encoder.encode(JSON.stringify({ action: 'open', path: msg.path }) + '\n'));
+          const action = msg.action === 'openfile' ? 'open' : 'listdir';
+          Deno.stdout.writeSync(encoder.encode(JSON.stringify({ action, path: msg.path }) + '\n'));
           break;
         }
       }
@@ -95,6 +74,11 @@ async function init(socket: WebSocket) {
           })));
           break;
         }
+        case 'dirlist': {
+          const payload = JSON.parse(decoder.decode((await generator.next()).value!));
+          socket.send(encoder.encode(JSON.stringify({ action: 'dirlist', path: payload.path, entries: payload.entries })));
+          break;
+        }
         default: {
           break;
         }
@@ -128,6 +112,7 @@ async function init(socket: WebSocket) {
           `--url=${new URL('index.html', Deno.mainModule).href}`,
           `--theme=${__args['theme']}`,
           `--serverUrl=${serverUrl}`,
+          `--useful-web=${usefulWeb}`,
         ],
         stdin: 'null',
       });
@@ -143,7 +128,7 @@ async function init(socket: WebSocket) {
 
       socket.onopen = () => {
         init(socket);
-        setupClientMessages(socket);
+        if (usefulWeb) setupClientMessages(socket);
       };
 
       return response;
@@ -166,7 +151,10 @@ async function init(socket: WebSocket) {
     const serverUrl = `${hostname.replace('0.0.0.0', 'localhost')}:${port}`;
     logger.info(`listening on ${serverUrl}`);
     const url = new URL(`http://${serverUrl}`);
-    const searchParams = new URLSearchParams({ theme: __args.theme });
+    const searchParams = new URLSearchParams({
+      theme: __args.theme,
+      ...(usefulWeb ? { usefulWeb: '1' } : {}),
+    });
     url.search = searchParams.toString();
 
     open(url.href, { app: app !== 'browser' && app })

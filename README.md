@@ -11,6 +11,7 @@
 - github-style look
 - [TeX](https://github.com/KaTeX/KaTeX) math
 - [Mermaid](https://github.com/mermaid-js/mermaid) diagrams
+- sidebar with table of contents and file explorer (`useful_web = true`)
 
 ### :battery: Requirements
 
@@ -58,6 +59,11 @@ require('peek').setup({
                             -- amount of bytes in size
   throttle_time = 'auto',   -- minimum amount of time in milliseconds
                             -- that has to pass before starting new render
+
+  useful_web = false,       -- enable sidebar UI (table of contents + file explorer)
+
+  tab = false,              -- open files from the sidebar in a new Neovim tab
+                            -- (requires useful_web = true)
 })
 ```
 
@@ -98,6 +104,25 @@ The following keybinds are active when preview window is focused:
 | d | scroll down half a page |
 | g | scroll to top           |
 | G | scroll to bottom        |
+
+### :books: Sidebar (`useful_web = true`)
+
+Enable the sidebar UI with `useful_web = true` in your setup call.
+
+Two panels are available, toggled by buttons in the top-left corner of the preview window:
+
+| panel | description |
+|-|-|
+| Table of Contents | Lists all headings in the current document. Click to scroll to that heading. |
+| File Explorer     | Directory tree rooted at the current file's parent. Click a `.md` file to open it. |
+
+The file explorer supports recursive directory expansion. Click `↑ ../` at the top of the
+panel to navigate to the parent directory. Opening a panel pushes the markdown content
+to the right instead of overlaying it.
+
+With `tab = true`, clicking a file in the explorer opens it in a new Neovim tab. If the
+file is already open in another tab, focus switches to that tab instead of creating a
+duplicate.
 
 ### :mag: Preview window
 

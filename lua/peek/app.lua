@@ -37,6 +37,10 @@ function module.setup()
     table.insert(args, '--syntax')
   end
 
+  if config.get('useful_web') then
+    table.insert(args, '--useful-web')
+  end
+
   cmd = vim.list_extend({
     'deno',
     'task',
@@ -45,7 +49,7 @@ function module.setup()
   }, args)
 end
 
-function module.init(on_exit, on_open_file)
+function module.init(on_exit, on_open_file, on_listdir)
   if channel then
     return
   end
@@ -57,12 +61,16 @@ function module.init(on_exit, on_open_file)
       for _, line in ipairs(data) do
         if line ~= '' then
           local ok, msg = pcall(vim.json.decode, line)
-          if ok and type(msg) == 'table' and msg.action == 'open' and msg.path then
-            vim.schedule(function()
-              if on_open_file then
-                on_open_file(msg.path)
-              end
-            end)
+          if ok and type(msg) == 'table' and msg.path then
+            if msg.action == 'open' then
+              vim.schedule(function()
+                if on_open_file then on_open_file(msg.path) end
+              end)
+            elseif msg.action == 'listdir' then
+              vim.schedule(function()
+                if on_listdir then on_listdir(msg.path) end
+              end)
+            end
           end
         end
       end
@@ -94,6 +102,10 @@ function module.init(on_exit, on_open_file)
 
   module.base = function(path)
     chansend(channel, message({ 'base', path }))
+  end
+
+  module.dirlist = function(path, entries)
+    chansend(channel, message({ 'dirlist', vim.json.encode({ path = path, entries = entries }) }))
   end
 end
 

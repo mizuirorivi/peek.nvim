@@ -20,13 +20,47 @@ end
 local function open(bufnr)
   augroup = nvim_create_augroup('PeekActiveAugroup', { clear = true })
 
+  local on_open_file, on_listdir
+  if config.get('useful_web') then
+    on_open_file = function(path)
+      local nbufnr = vim.fn.bufadd(path)
+      vim.fn.bufload(nbufnr)
+      if config.get('tab') then
+        local wins = vim.fn.win_findbuf(nbufnr)
+        if #wins > 0 then
+          vim.api.nvim_set_current_win(wins[1])
+        else
+          vim.cmd('tabnew')
+          vim.api.nvim_set_current_buf(nbufnr)
+        end
+      else
+        vim.api.nvim_set_current_buf(nbufnr)
+      end
+      if not config.get('auto_load') then
+        open(nbufnr)
+      end
+    end
+    on_listdir = function(path)
+      local entries = {}
+      local names = vim.fn.readdir(path)
+      for _, name in ipairs(names) do
+        if not name:match('^%.') then
+          local full = path .. '/' .. name
+          local is_dir = vim.fn.isdirectory(full) == 1
+          table.insert(entries, { name = name, path = full, isDir = is_dir })
+        end
+      end
+      table.sort(entries, function(a, b)
+        if a.isDir ~= b.isDir then return a.isDir end
+        return a.name < b.name
+      end)
+      app.dirlist(path, entries)
+    end
+  end
+
   app.init(function()
     augroup = nvim_del_augroup_by_id(augroup)
-  end, function(path)
-    local nbufnr = vim.fn.bufadd(path)
-    vim.fn.bufload(nbufnr)
-    open(nbufnr)
-  end)
+  end, on_open_file, on_listdir)
   app.base(vim.fn.fnamemodify(vim.uri_to_fname(vim.uri_from_bufnr(bufnr)), ':p:h'))
   app.show(get_buf_content(bufnr))
   app.scroll(line('.'))
