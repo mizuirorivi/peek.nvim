@@ -23,11 +23,14 @@
 
 ```lua
 {
-    "toppair/peek.nvim",
+    "mizuirorivi/peek.nvim",
     event = { "VeryLazy" },
     build = "deno task --quiet build:fast",
     config = function()
-        require("peek").setup()
+        require("peek").setup({
+            useful_web = true,  -- enable sidebar (table of contents + file explorer)
+            tab = false,        -- open files from sidebar in a new tab
+        })
         vim.api.nvim_create_user_command("PeekOpen", require("peek").open, {})
         vim.api.nvim_create_user_command("PeekClose", require("peek").close, {})
     end,

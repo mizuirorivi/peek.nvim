@@ -64,11 +64,19 @@ function module.init(on_exit, on_open_file, on_listdir)
           if ok and type(msg) == 'table' and msg.path then
             if msg.action == 'open' then
               vim.schedule(function()
-                if on_open_file then on_open_file(msg.path) end
+                if on_open_file and vim.fn.filereadable(msg.path) == 1 then
+                  on_open_file(msg.path)
+                end
               end)
             elseif msg.action == 'listdir' then
               vim.schedule(function()
-                if on_listdir then on_listdir(msg.path) end
+                if on_listdir then
+                  if vim.fn.isdirectory(msg.path) == 1 then
+                    on_listdir(msg.path)
+                  else
+                    module.dirlist(msg.path, {})
+                  end
+                end
               end)
             end
           end

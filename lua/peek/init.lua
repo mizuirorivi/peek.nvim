@@ -23,6 +23,8 @@ local function open(bufnr)
   local on_open_file, on_listdir
   if config.get('useful_web') then
     on_open_file = function(path)
+      local ft = vim.filetype.match({ filename = path:lower() })
+      if not vim.tbl_contains(config.get('filetype'), ft) then return end
       local nbufnr = vim.fn.bufadd(path)
       vim.fn.bufload(nbufnr)
       if config.get('tab') then
