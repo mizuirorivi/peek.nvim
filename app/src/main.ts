@@ -16,6 +16,45 @@ const version = Deno.version;
 logger.info(`DENO_ENV: ${DENO_ENV}`, ...Deno.args);
 logger.info(`deno: ${version.deno} v8: ${version.v8} typescript: ${version.typescript}`);
 
+interface FileEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+}
+
+async function listDir(dirPath: string): Promise<FileEntry[]> {
+  const entries: FileEntry[] = [];
+  for await (const entry of Deno.readDir(dirPath)) {
+    if (entry.name.startsWith('.')) continue;
+    entries.push({ name: entry.name, path: dirPath + '/' + entry.name, isDir: entry.isDirectory });
+  }
+  entries.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return entries;
+}
+
+function setupClientMessages(socket: WebSocket) {
+  const encoder = new TextEncoder();
+  socket.addEventListener('message', async (event) => {
+    try {
+      const msg = JSON.parse(typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data));
+      switch (msg.action) {
+        case 'listdir': {
+          const entries = await listDir(msg.path);
+          socket.send(encoder.encode(JSON.stringify({ action: 'dirlist', path: msg.path, entries })));
+          break;
+        }
+        case 'openfile': {
+          Deno.stdout.writeSync(encoder.encode(JSON.stringify({ action: 'open', path: msg.path }) + '\n'));
+          break;
+        }
+      }
+    } catch (_) { /**/ }
+  });
+}
+
 async function init(socket: WebSocket) {
   if (DENO_ENV === 'development') {
     return void (await import(join(__dirname, 'ipc_dev.ts'))).default(socket);
@@ -104,6 +143,7 @@ async function init(socket: WebSocket) {
 
       socket.onopen = () => {
         init(socket);
+        setupClientMessages(socket);
       };
 
       return response;
@@ -152,6 +192,7 @@ async function init(socket: WebSocket) {
 
     socket.onopen = () => {
       init(socket);
+      setupClientMessages(socket);
     };
 
     socket.onclose = () => {

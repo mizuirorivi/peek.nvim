@@ -45,7 +45,7 @@ function module.setup()
   }, args)
 end
 
-function module.init(on_exit)
+function module.init(on_exit, on_open_file)
   if channel then
     return
   end
@@ -53,6 +53,20 @@ function module.init(on_exit)
   channel = vim.fn.jobstart(cmd, {
     cwd = cwd,
     stderr_buffered = true,
+    on_stdout = function(_, data)
+      for _, line in ipairs(data) do
+        if line ~= '' then
+          local ok, msg = pcall(vim.json.decode, line)
+          if ok and type(msg) == 'table' and msg.action == 'open' and msg.path then
+            vim.schedule(function()
+              if on_open_file then
+                on_open_file(msg.path)
+              end
+            end)
+          end
+        end
+      end
+    end,
     on_stderr = function(_, err)
       vim.fn.jobstop(channel)
       local content = table.concat(err, '\n'):gsub('\27[[0-9;]*m', '')
