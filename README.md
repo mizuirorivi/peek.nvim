@@ -1,8 +1,30 @@
 # peek.nvim
 
-*Markdown preview plugin for [Neovim](https://github.com/neovim/neovim)*
+A Markdown previewer for Neovim — not a dead-end, but a navigation surface.
 
-![preview](media/peek.jpg)
+Read rendered Markdown, jump between headings, browse nearby files,
+and load them into a Neovim buffer the moment editing is needed.
+
+![demo](output.gif)
+
+### Why?
+
+Sometimes I edit Markdown while checking the rendered preview.
+Sometimes I just want to read Markdown as a document.
+
+But while reading, I often find something I want to edit immediately.
+
+This feature makes the preview window a lightweight navigation surface:
+read rendered Markdown, jump between headings, browse nearby Markdown files,
+and load them directly into a Neovim buffer — one click away from editing.
+
+This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
+
+- Table of Contents in the preview window
+- Markdown File Explorer
+- Open Markdown files directly into a Neovim buffer
+- Optional tab mode
+- Disabled by default
 
 ### :sparkles: Features
 
