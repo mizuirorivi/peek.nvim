@@ -11,13 +11,14 @@ local line = vim.fn.line
 
 local module = {}
 
-local augroup, throttle_at, throttle_time, initialized
+local augroup, throttle_at, throttle_time, initialized, previewed_bufnr, restarting
 
 local function get_buf_content(bufnr)
   return concat(nvim_buf_get_lines(bufnr, 0, -1, false), '\n'):gsub('%s*$', '')
 end
 
 local function open(bufnr)
+  previewed_bufnr = bufnr
   augroup = nvim_create_augroup('PeekActiveAugroup', { clear = true })
 
   local on_open_file, on_listdir
@@ -62,6 +63,11 @@ local function open(bufnr)
 
   app.init(function()
     augroup = nvim_del_augroup_by_id(augroup)
+    local was_restarting = restarting
+    restarting = false
+    if was_restarting then
+      vim.schedule(function() open(previewed_bufnr) end)
+    end
   end, on_open_file, on_listdir)
   app.base(vim.fn.fnamemodify(vim.uri_to_fname(vim.uri_from_bufnr(bufnr)), ':p:h'))
   app.show(get_buf_content(bufnr))
@@ -159,6 +165,21 @@ end)
 
 module.is_open = ensure_init(function()
   return not not augroup
+end)
+
+module.set_useful_web = ensure_init(function(enabled)
+  if restarting then return end
+  if config.get('useful_web') == enabled then return end
+  config.set('useful_web', enabled)
+  if augroup then
+    app.setup()
+    restarting = true
+    app.stop()
+  end
+end)
+
+module.toggle_useful_web = ensure_init(function()
+  module.set_useful_web(not config.get('useful_web'))
 end)
 
 function module.setup(cfg)

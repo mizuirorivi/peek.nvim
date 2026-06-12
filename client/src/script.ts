@@ -164,6 +164,7 @@ addEventListener('DOMContentLoaded', () => {
     const filesPanel = createPanel('Files', 'peek-files-panel');
     const filesTree = filesPanel.querySelector('.peek-panel-body') as HTMLElement;
 
+    document.body.classList.add('peek-sidebar-active');
     document.body.append(sidebar, tocPanel, filesPanel);
 
     function closeAllPanels() {

@@ -81,4 +81,16 @@ function module.get(key)
   return config[key]
 end
 
+local validators = {
+  useful_web = { 'boolean' },
+}
+
+function module.set(key, value)
+  local spec = validators[key]
+  if spec then
+    vim.validate({ [key] = vim.list_extend({ value }, spec) })
+  end
+  config[key] = value
+end
+
 return module

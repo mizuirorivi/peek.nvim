@@ -15,7 +15,11 @@ body::-webkit-scrollbar-thumb {
   padding: 0;
   transition: padding-left 0.2s ease;
 }
-body.peek-panel-open {
+body.peek-sidebar-active {
+  padding-left: 44px;
+}
+body.peek-panel-open,
+body.peek-sidebar-active.peek-panel-open {
   padding-left: 324px;
 }
 .markdown-body {
