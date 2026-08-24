@@ -15,6 +15,7 @@ interface Config {
   serverUrl?: string;
   ctx?: string;
   usefulWeb?: boolean;
+  syncScroll?: boolean;
 }
 
 export function getInjectConfig(): Config {
@@ -25,8 +26,8 @@ export function getInjectConfig(): Config {
   const params: Config = {};
 
   new URLSearchParams(location.search).forEach((value, key) => {
-    if (key === 'usefulWeb') {
-      params.usefulWeb = value === '1';
+    if (key === 'usefulWeb' || key === 'syncScroll') {
+      params[key] = value === '1';
     } else {
       params[key as keyof Config] = value as never;
     }

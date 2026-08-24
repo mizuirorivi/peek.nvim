@@ -11,7 +11,7 @@ local line = vim.fn.line
 
 local module = {}
 
-local augroup, throttle_at, throttle_time, initialized, previewed_bufnr, restarting
+local augroup, throttle_at, throttle_time, initialized, previewed_bufnr, previewed_winid, preview_id, restarting
 
 local function get_buf_content(bufnr)
   return concat(nvim_buf_get_lines(bufnr, 0, -1, false), '\n'):gsub('%s*$', '')
@@ -19,6 +19,8 @@ end
 
 local function open(bufnr)
   previewed_bufnr = bufnr
+  previewed_winid = vim.api.nvim_get_current_win()
+  preview_id = (preview_id or 0) + 1
   augroup = nvim_create_augroup('PeekActiveAugroup', { clear = true })
 
   local on_open_file, on_listdir
@@ -61,6 +63,28 @@ local function open(bufnr)
     end
   end
 
+  local function on_browser_scroll(target_line, document_id)
+    if not config.get('sync_scroll_from_browser') then return end
+    if document_id ~= preview_id then return end
+    if not previewed_bufnr or not vim.api.nvim_buf_is_valid(previewed_bufnr) then return end
+
+    local winid = previewed_winid
+    if
+      not winid
+      or not vim.api.nvim_win_is_valid(winid)
+      or vim.api.nvim_win_get_buf(winid) ~= previewed_bufnr
+    then
+      winid = vim.fn.win_findbuf(previewed_bufnr)[1]
+      if not winid then return end
+      previewed_winid = winid
+    end
+
+    local last_line = vim.api.nvim_buf_line_count(previewed_bufnr)
+    target_line = math.max(1, math.min(target_line, last_line))
+    vim.api.nvim_win_set_cursor(winid, { target_line, 0 })
+    vim.api.nvim_win_call(winid, function() vim.cmd('normal! zz') end)
+  end
+
   app.init(function()
     augroup = nvim_del_augroup_by_id(augroup)
     local was_restarting = restarting
@@ -68,7 +92,8 @@ local function open(bufnr)
     if was_restarting then
       vim.schedule(function() open(previewed_bufnr) end)
     end
-  end, on_open_file, on_listdir)
+  end, on_open_file, on_listdir, on_browser_scroll)
+  app.document(preview_id)
   app.base(vim.fn.fnamemodify(vim.uri_to_fname(vim.uri_from_bufnr(bufnr)), ':p:h'))
   app.show(get_buf_content(bufnr))
   app.scroll(line('.'))

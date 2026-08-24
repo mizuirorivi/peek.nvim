@@ -15,6 +15,13 @@ addEventListener('DOMContentLoaded', () => {
   let source: { lcount: number } | undefined;
   let blocks: HTMLElement[][] | undefined;
   let scroll: { line: number } | undefined;
+  let documentId: number | undefined;
+  let receivedServerState = false;
+  let suppressBrowserScroll = false;
+  let suppressBrowserScrollTimer: number | undefined;
+  let browserScrollTimer: number | undefined;
+  let lastBrowserLine: number | undefined;
+  const pendingBrowserLines = new Map<number, number>();
 
   const zoom = {
     level: 100,
@@ -65,12 +72,24 @@ addEventListener('DOMContentLoaded', () => {
       '0': zoom.reset.bind(zoom),
     };
     const plain: Record<string, () => void> = {
-      'j': () => { window.scrollBy({ top: 50 }); },
-      'k': () => { window.scrollBy({ top: -50 }); },
-      'd': () => { window.scrollBy({ top: window.innerHeight / 2 }); },
-      'u': () => { window.scrollBy({ top: -window.innerHeight / 2 }); },
-      'g': () => { window.scrollTo({ top: 0 }); },
-      'G': () => { window.scrollTo({ top: document.body.scrollHeight }); },
+      'j': () => {
+        window.scrollBy({ top: 50 });
+      },
+      'k': () => {
+        window.scrollBy({ top: -50 });
+      },
+      'd': () => {
+        window.scrollBy({ top: window.innerHeight / 2 });
+      },
+      'u': () => {
+        window.scrollBy({ top: -window.innerHeight / 2 });
+      },
+      'g': () => {
+        window.scrollTo({ top: 0 });
+      },
+      'G': () => {
+        window.scrollTo({ top: document.body.scrollHeight });
+      },
       'Escape': () => usefulWebCloseAllPanels?.(),
     };
     const action = event.ctrlKey && peek.ctx === 'webview' ? ctrl[event.key] : plain[event.key];
@@ -82,8 +101,9 @@ addEventListener('DOMContentLoaded', () => {
 
   onload = () => {
     const item = sessionStorage.getItem('session');
-    if (item) {
+    if (item && !receivedServerState) {
       const session = JSON.parse(item);
+      onDocument({ documentId: session.documentId });
       base.href = session.base;
       onPreview({ html: session.html, lcount: session.lcount });
       onScroll({ line: session.line });
@@ -98,6 +118,7 @@ addEventListener('DOMContentLoaded', () => {
         html: markdownBody.innerHTML,
         lcount: source?.lcount,
         line: scroll?.line,
+        documentId,
       }),
     );
   };
@@ -117,16 +138,16 @@ addEventListener('DOMContentLoaded', () => {
   // ── useful_web extensions ────────────────────────────────────────────
   // All sidebar / file-tree / navigation code lives here.
   // When useful_web=false this block is never entered — zero overhead.
+  interface FileEntry {
+    name: string;
+    path: string;
+    isDir: boolean;
+  }
+
   let usefulWebOnBase: ((basePath: string) => void) | undefined;
   let usefulWebOnDirlist: ((data: { path: string; entries: FileEntry[] }) => void) | undefined;
 
   if (peek.usefulWeb) {
-    interface FileEntry {
-      name: string;
-      path: string;
-      isDir: boolean;
-    }
-
     const pendingDirRequests = new Map<string, { container: HTMLElement; depth: number }>();
     let rootDirPath = '';
 
@@ -154,7 +175,8 @@ addEventListener('DOMContentLoaded', () => {
       const panel = document.createElement('div');
       panel.id = id;
       panel.className = 'peek-side-panel';
-      panel.innerHTML = `<div class="peek-panel-header"><span>${title}</span><button class="peek-panel-close">✕</button></div><div class="peek-panel-body"></div>`;
+      panel.innerHTML =
+        `<div class="peek-panel-header"><span>${title}</span><button class="peek-panel-close">✕</button></div><div class="peek-panel-body"></div>`;
       panel.querySelector('.peek-panel-close')!.addEventListener('click', () => closeAllPanels());
       return panel;
     }
@@ -291,6 +313,9 @@ addEventListener('DOMContentLoaded', () => {
 
   socket.onmessage = (event) => {
     const data = JSON.parse(decoder.decode(event.data));
+    if (['show', 'scroll', 'base', 'document'].includes(data.action)) {
+      receivedServerState = true;
+    }
 
     switch (data.action) {
       case 'show':
@@ -298,6 +323,9 @@ addEventListener('DOMContentLoaded', () => {
         break;
       case 'scroll':
         onScroll(data);
+        break;
+      case 'document':
+        onDocument(data);
         break;
       case 'base':
         base.href = data.base;
@@ -374,12 +402,14 @@ addEventListener('DOMContentLoaded', () => {
       },
     };
 
-    const mutationObserver = new MutationObserver(() => {
-      blocks = slidingWindows(Array.from(document.querySelectorAll('[data-line-begin]')), 2, {
+    function updateBlocks() {
+      blocks = slidingWindows(Array.from(markdownBody.querySelectorAll('[data-line-begin]')), 2, {
         step: 1,
         partial: true,
       });
-    });
+    }
+
+    const mutationObserver = new MutationObserver(updateBlocks);
 
     const resizeObserver = new ResizeObserver(() => {
       if (scroll) onScroll(scroll);
@@ -391,48 +421,132 @@ addEventListener('DOMContentLoaded', () => {
     return (data: { html: string; lcount: number }) => {
       source = { lcount: data.lcount };
       morphdom(markdownBody, `<main>${data.html}</main>`, morphdomOptions);
+      updateBlocks();
       usefulWebOnPreviewDone?.();
     };
   })();
 
-  const onScroll = (() => {
-    function getBlockOnLine(line: number) {
-      return findLast(blocks, (block) => line >= Number(block[0].dataset.lineBegin));
+  function getOffset(elem: HTMLElement): number {
+    let current: HTMLElement | null = elem;
+    let top = 0;
+
+    while (top === 0 && current) {
+      top = current.getBoundingClientRect().top;
+      current = current.parentElement;
     }
 
-    function getOffset(elem: HTMLElement): number {
-      let current: HTMLElement | null = elem;
-      let top = 0;
+    return top + window.scrollY;
+  }
 
-      while (top === 0 && current) {
-        top = current.getBoundingClientRect().top;
-        current = current.parentElement;
-      }
+  function onDocument(data: { documentId: number }) {
+    if (!Number.isInteger(data.documentId) || data.documentId < 1) return;
 
-      return top + window.scrollY;
+    documentId = data.documentId;
+    source = undefined;
+    blocks = undefined;
+    scroll = undefined;
+    lastBrowserLine = undefined;
+    pendingBrowserLines.clear();
+    clearTimeout(browserScrollTimer);
+    browserScrollTimer = undefined;
+    clearTimeout(suppressBrowserScrollTimer);
+    suppressBrowserScroll = true;
+    suppressBrowserScrollTimer = setTimeout(() => {
+      suppressBrowserScroll = false;
+    }, 250);
+  }
+
+  function getBlockOnLine(line: number) {
+    return findLast(blocks, (block) => line >= Number(block[0].dataset.lineBegin));
+  }
+
+  function getLineAtOffset(offset: number): number | undefined {
+    if (!blocks || !blocks[0] || !source) return;
+
+    const block = findLast(blocks, (item) => offset >= getOffset(item[0])) || blocks[0];
+    const target = block[0];
+    const next = block[1];
+    const offsetBegin = getOffset(target);
+    const offsetEnd = next ? getOffset(next) : offsetBegin + target.getBoundingClientRect().height;
+    const lineBegin = Number(target.dataset.lineBegin);
+    const lineEnd = next ? Number(next.dataset.lineBegin) : source.lcount + 1;
+    const pixPerLine = (offsetEnd - offsetBegin) / (lineEnd - lineBegin);
+    const line = pixPerLine > 0
+      ? lineBegin + Math.floor((offset - offsetBegin) / pixPerLine)
+      : lineBegin;
+
+    return Math.max(1, Math.min(line, source.lcount));
+  }
+
+  const onScroll = (data: { line: number | string; documentId?: number }) => {
+    const line = Number(data.line);
+    if (!Number.isInteger(line) || line < 1) return;
+    if (data.documentId !== undefined && data.documentId !== documentId) return;
+
+    scroll = { line };
+
+    const sentAt = pendingBrowserLines.get(line);
+    if (sentAt !== undefined && performance.now() - sentAt < 1000) {
+      pendingBrowserLines.delete(line);
+      return;
     }
 
-    return (data: { line: number }) => {
-      scroll = data;
+    clearTimeout(browserScrollTimer);
+    browserScrollTimer = undefined;
+    pendingBrowserLines.clear();
+    lastBrowserLine = undefined;
 
-      if (!blocks || !blocks[0] || !source) return;
+    if (!blocks || !blocks[0] || !source) return;
 
-      const block = getBlockOnLine(data.line) || blocks[0];
-      const target = block[0];
-      const next = target ? block[1] : blocks[0][0];
+    const block = getBlockOnLine(line) || blocks[0];
+    const target = block[0];
+    const next = block[1];
 
-      const offsetBegin = target ? getOffset(target) : 0;
-      const offsetEnd = next
-        ? getOffset(next)
-        : offsetBegin + target.getBoundingClientRect().height;
+    const offsetBegin = getOffset(target);
+    const offsetEnd = next ? getOffset(next) : offsetBegin + target.getBoundingClientRect().height;
 
-      const lineBegin = target ? Number(target.dataset.lineBegin) : 1;
-      const lineEnd = next ? Number(next.dataset.lineBegin) : source.lcount + 1;
+    const lineBegin = Number(target.dataset.lineBegin);
+    const lineEnd = next ? Number(next.dataset.lineBegin) : source.lcount + 1;
 
-      const pixPerLine = (offsetEnd - offsetBegin) / (lineEnd - lineBegin);
-      const scrollPix = (data.line - lineBegin) * pixPerLine;
+    const pixPerLine = (offsetEnd - offsetBegin) / (lineEnd - lineBegin);
+    const scrollPix = (line - lineBegin) * pixPerLine;
 
-      window.scroll({ top: offsetBegin + scrollPix - window.innerHeight / 2 + pixPerLine / 2 });
-    };
-  })();
+    suppressBrowserScroll = true;
+    window.scroll({ top: offsetBegin + scrollPix - window.innerHeight / 2 + pixPerLine / 2 });
+    clearTimeout(suppressBrowserScrollTimer);
+    suppressBrowserScrollTimer = setTimeout(() => {
+      suppressBrowserScroll = false;
+    }, 50);
+  };
+
+  function reportBrowserScroll() {
+    const line = getLineAtOffset(window.scrollY + window.innerHeight / 2);
+    if (
+      line === undefined ||
+      line === lastBrowserLine ||
+      documentId === undefined ||
+      socket.readyState !== WebSocket.OPEN
+    ) {
+      return;
+    }
+
+    const now = performance.now();
+    for (const [pendingLine, sentAt] of pendingBrowserLines) {
+      if (now - sentAt >= 1000) pendingBrowserLines.delete(pendingLine);
+    }
+
+    lastBrowserLine = line;
+    scroll = { line };
+    pendingBrowserLines.set(line, now);
+    socket.send(JSON.stringify({ action: 'scroll', line, documentId }));
+  }
+
+  window.addEventListener('scroll', () => {
+    if (!peek.syncScroll || suppressBrowserScroll || browserScrollTimer !== undefined) return;
+
+    browserScrollTimer = setTimeout(() => {
+      browserScrollTimer = undefined;
+      if (!suppressBrowserScroll) reportBrowserScroll();
+    }, 100);
+  }, { passive: true });
 });

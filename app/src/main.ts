@@ -6,7 +6,8 @@ import log from './log.ts';
 import { render } from './markdownit.ts';
 
 const __args = parseArgs(Deno.args);
-const usefulWeb = !!__args['useful-web'];
+const usefulWeb = __args['useful-web'] === true;
+const syncScroll = __args['sync-scroll'] === true;
 const __dirname = dirname(new URL(import.meta.url).pathname);
 
 const DENO_ENV = Deno.env.get('DENO_ENV');
@@ -17,12 +18,84 @@ const version = Deno.version;
 logger.info(`DENO_ENV: ${DENO_ENV}`, ...Deno.args);
 logger.info(`deno: ${version.deno} v8: ${version.v8} typescript: ${version.typescript}`);
 
+interface ClientMessage {
+  action: string;
+  [key: string]: unknown;
+}
+
+const clientEncoder = new TextEncoder();
+const clientState = new Map<string, ClientMessage>();
+const replayOrder = ['document', 'base', 'show', 'scroll'];
+let activeSocket: WebSocket | undefined;
+let inputTask: Promise<void> | undefined;
+
+function sendToSocket(socket: WebSocket, message: ClientMessage) {
+  if (socket.readyState !== WebSocket.OPEN) return;
+
+  try {
+    socket.send(clientEncoder.encode(JSON.stringify(message)));
+  } catch (_) {
+    if (activeSocket === socket) activeSocket = undefined;
+  }
+}
+
+function sendClientMessage(message: ClientMessage, remember = true) {
+  if (remember) {
+    if (message.action === 'document') clientState.clear();
+    clientState.set(message.action, message);
+  }
+
+  if (activeSocket) sendToSocket(activeSocket, message);
+}
+
+function connectClient(socket: WebSocket) {
+  activeSocket = socket;
+
+  for (const action of replayOrder) {
+    const message = clientState.get(action);
+    if (message) sendToSocket(socket, message);
+  }
+
+  inputTask ||= init();
+}
+
+function disconnectClient(socket: WebSocket) {
+  if (activeSocket === socket) activeSocket = undefined;
+}
+
+function getServerUrl(address: Deno.Addr) {
+  if (address.transport !== 'tcp') throw new Error(`Unsupported transport: ${address.transport}`);
+  return `${address.hostname.replace('0.0.0.0', 'localhost')}:${address.port}`;
+}
+
 function setupClientMessages(socket: WebSocket) {
   const encoder = new TextEncoder();
   socket.addEventListener('message', (event) => {
+    if (activeSocket !== socket) return;
+
     try {
-      const msg = JSON.parse(typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data));
+      const msg = JSON.parse(
+        typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data),
+      );
       switch (msg.action) {
+        case 'scroll': {
+          const line = msg.line;
+          const documentId = msg.documentId;
+          if (
+            syncScroll &&
+            typeof line === 'number' &&
+            Number.isInteger(line) &&
+            line >= 1 &&
+            typeof documentId === 'number' &&
+            Number.isInteger(documentId) &&
+            documentId >= 1
+          ) {
+            Deno.stdout.writeSync(
+              encoder.encode(JSON.stringify({ action: 'scroll', line, documentId }) + '\n'),
+            );
+          }
+          break;
+        }
         case 'listdir':
         case 'openfile': {
           const action = msg.action === 'openfile' ? 'open' : 'listdir';
@@ -34,58 +107,63 @@ function setupClientMessages(socket: WebSocket) {
   });
 }
 
-async function init(socket: WebSocket) {
+async function init() {
   if (DENO_ENV === 'development') {
-    return void (await import(join(__dirname, 'ipc_dev.ts'))).default(socket);
+    return void (await import(join(__dirname, 'ipc_dev.ts'))).default(sendClientMessage);
   }
 
-  const encoder = new TextEncoder();
   const decoder = new TextDecoder();
+  let documentId: number | undefined;
 
   const generator = readChunks(Deno.stdin);
 
-  try {
-    for await (const chunk of generator) {
-      const action = decoder.decode(chunk.buffer);
+  for await (const chunk of generator) {
+    const action = decoder.decode(chunk.buffer);
 
-      switch (action) {
-        case 'show': {
-          const content = decoder.decode((await generator.next()).value!);
+    switch (action) {
+      case 'show': {
+        const content = decoder.decode((await generator.next()).value!);
 
-          socket.send(encoder.encode(JSON.stringify({
-            action: 'show',
-            html: render(content),
-            lcount: (content.match(/(?:\r?\n)/g) || []).length + 1,
-          })));
+        sendClientMessage({
+          action: 'show',
+          html: render(content),
+          lcount: (content.match(/(?:\r?\n)/g) || []).length + 1,
+        });
 
-          break;
-        }
-        case 'scroll': {
-          socket.send(encoder.encode(JSON.stringify({
-            action,
-            line: decoder.decode((await generator.next()).value!),
-          })));
-          break;
-        }
-        case 'base': {
-          socket.send(encoder.encode(JSON.stringify({
-            action,
-            base: normalize(decoder.decode((await generator.next()).value!) + '/'),
-          })));
-          break;
-        }
-        case 'dirlist': {
-          const payload = JSON.parse(decoder.decode((await generator.next()).value!));
-          socket.send(encoder.encode(JSON.stringify({ action: 'dirlist', path: payload.path, entries: payload.entries })));
-          break;
-        }
-        default: {
-          break;
-        }
+        break;
+      }
+      case 'scroll': {
+        sendClientMessage({
+          action,
+          line: Number(decoder.decode((await generator.next()).value!)),
+          documentId,
+        });
+        break;
+      }
+      case 'document': {
+        documentId = Number(decoder.decode((await generator.next()).value!));
+        sendClientMessage({ action, documentId });
+        break;
+      }
+      case 'base': {
+        sendClientMessage({
+          action,
+          base: normalize(decoder.decode((await generator.next()).value!) + '/'),
+        });
+        break;
+      }
+      case 'dirlist': {
+        const payload = JSON.parse(decoder.decode((await generator.next()).value!));
+        sendClientMessage(
+          { action: 'dirlist', path: payload.path, entries: payload.entries },
+          false,
+        );
+        break;
+      }
+      default: {
+        break;
       }
     }
-  } catch (e) {
-    if (e.name !== 'InvalidStateError') throw e;
   }
 }
 
@@ -93,8 +171,8 @@ async function init(socket: WebSocket) {
   const app = __args['app'] ? JSON.parse(__args['app']) : 'webview';
 
   if (app === 'webview') {
-    const onListen: Deno.ServeOptions['onListen'] = ({ hostname, port }) => {
-      const serverUrl = `${hostname.replace('0.0.0.0', 'localhost')}:${port}`;
+    const onListen: Deno.ServeOptions['onListen'] = (address) => {
+      const serverUrl = getServerUrl(address);
       logger.info(`listening on ${serverUrl}`);
       const webview = new Deno.Command('deno', {
         cwd: dirname(fromFileUrl(Deno.mainModule)),
@@ -112,7 +190,8 @@ async function init(socket: WebSocket) {
           `--url=${new URL('index.html', Deno.mainModule).href}`,
           `--theme=${__args['theme']}`,
           `--serverUrl=${serverUrl}`,
-          `--useful-web=${usefulWeb}`,
+          ...(usefulWeb ? ['--useful-web'] : []),
+          ...(syncScroll ? ['--sync-scroll'] : []),
         ],
         stdin: 'null',
       });
@@ -127,9 +206,10 @@ async function init(socket: WebSocket) {
       const { socket, response } = Deno.upgradeWebSocket(request);
 
       socket.onopen = () => {
-        init(socket);
-        if (usefulWeb) setupClientMessages(socket);
+        connectClient(socket);
+        if (usefulWeb || syncScroll) setupClientMessages(socket);
       };
+      socket.onclose = () => disconnectClient(socket);
 
       return response;
     });
@@ -147,13 +227,14 @@ async function init(socket: WebSocket) {
     }
   }
 
-  const onListen: Deno.ServeOptions['onListen'] = ({ hostname, port }) => {
-    const serverUrl = `${hostname.replace('0.0.0.0', 'localhost')}:${port}`;
+  const onListen: Deno.ServeOptions['onListen'] = (address) => {
+    const serverUrl = getServerUrl(address);
     logger.info(`listening on ${serverUrl}`);
     const url = new URL(`http://${serverUrl}`);
     const searchParams = new URLSearchParams({
       theme: __args.theme,
       ...(usefulWeb ? { usefulWeb: '1' } : {}),
+      ...(syncScroll ? { syncScroll: '1' } : {}),
     });
     url.search = searchParams.toString();
 
@@ -179,14 +260,18 @@ async function init(socket: WebSocket) {
     const { socket, response } = Deno.upgradeWebSocket(request);
 
     socket.onopen = () => {
-      init(socket);
+      clearTimeout(timeout);
+      connectClient(socket);
       setupClientMessages(socket);
     };
 
     socket.onclose = () => {
-      timeout = setTimeout(() => {
-        Deno.exit();
-      }, 2000);
+      disconnectClient(socket);
+      if (!activeSocket) {
+        timeout = setTimeout(() => {
+          if (!activeSocket) Deno.exit();
+        }, 2000);
+      }
     };
 
     return response;

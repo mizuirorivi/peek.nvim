@@ -12,6 +12,7 @@ local config = {
   filetype = { 'markdown' },
   tab = false,
   useful_web = false,
+  sync_scroll_from_browser = false,
 }
 
 local function optional(predicate)
@@ -72,6 +73,7 @@ function module.setup(incoming)
     filetype = { incoming.filetype, optional(every(of_type('string'))), 'string[]' },
     tab = { incoming.tab, 'boolean', true },
     useful_web = { incoming.useful_web, 'boolean', true },
+    sync_scroll_from_browser = { incoming.sync_scroll_from_browser, 'boolean', true },
   })
 
   config = vim.tbl_extend('force', config, incoming)

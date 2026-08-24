@@ -52,6 +52,7 @@ This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
         require("peek").setup({
             useful_web = true,  -- enable sidebar (table of contents + file explorer)
             tab = false,        -- open files from sidebar in a new tab
+            sync_scroll_from_browser = true,
         })
         vim.api.nvim_create_user_command("PeekOpen", require("peek").open, {})
         vim.api.nvim_create_user_command("PeekClose", require("peek").close, {})
@@ -73,6 +74,8 @@ require('peek').setup({
   theme = 'dark',           -- 'dark' or 'light'
 
   update_on_change = true,
+
+  sync_scroll_from_browser = false, -- move the Neovim cursor as the preview scrolls
 
   app = 'webview',          -- 'webview', 'browser', string or a table of strings
                             -- explained below
@@ -129,6 +132,20 @@ The following keybinds are active when preview window is focused:
 | d | scroll down half a page |
 | g | scroll to top           |
 | G | scroll to bottom        |
+
+### :left_right_arrow: Bidirectional scrolling
+
+Neovim cursor movement scrolls the preview by default. To also move the Neovim
+cursor when scrolling the preview, enable `sync_scroll_from_browser`:
+
+```lua
+require('peek').setup({
+  sync_scroll_from_browser = true,
+})
+```
+
+The source line at the center of the preview is sent to Neovim while scrolling.
+Neovim moves the cursor to that line and centers it in the originating window.
 
 ### :books: Sidebar (`useful_web = true`)
 

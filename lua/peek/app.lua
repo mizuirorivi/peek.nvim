@@ -41,6 +41,10 @@ function module.setup()
     table.insert(args, '--useful-web')
   end
 
+  if config.get('sync_scroll_from_browser') then
+    table.insert(args, '--sync-scroll')
+  end
+
   cmd = vim.list_extend({
     'deno',
     'task',
@@ -49,32 +53,54 @@ function module.setup()
   }, args)
 end
 
-function module.init(on_exit, on_open_file, on_listdir)
+function module.init(on_exit, on_open_file, on_listdir, on_scroll)
   if channel then
     return
   end
+
+  local stdout_buffer = ''
 
   channel = vim.fn.jobstart(cmd, {
     cwd = cwd,
     stderr_buffered = true,
     on_stdout = function(_, data)
+      if not data or #data == 0 then return end
+      data[1] = stdout_buffer .. data[1]
+      stdout_buffer = table.remove(data) or ''
+
       for _, line in ipairs(data) do
         if line ~= '' then
           local ok, msg = pcall(vim.json.decode, line)
-          if ok and type(msg) == 'table' and msg.path then
-            if msg.action == 'open' then
+          if ok and type(msg) == 'table' then
+            if msg.action == 'scroll' then
+              local scroll_line = tonumber(msg.line)
+              local document_id = tonumber(msg.documentId)
+              if
+                on_scroll
+                and scroll_line
+                and scroll_line >= 1
+                and scroll_line == math.floor(scroll_line)
+                and document_id
+                and document_id >= 1
+                and document_id == math.floor(document_id)
+              then
+                vim.schedule(function() on_scroll(scroll_line, document_id) end)
+              end
+            elseif msg.action == 'open' and msg.path then
+              local path = msg.path
               vim.schedule(function()
-                if on_open_file and vim.fn.filereadable(msg.path) == 1 then
-                  on_open_file(msg.path)
+                if on_open_file and vim.fn.filereadable(path) == 1 then
+                  on_open_file(path)
                 end
               end)
-            elseif msg.action == 'listdir' then
+            elseif msg.action == 'listdir' and msg.path then
+              local path = msg.path
               vim.schedule(function()
                 if on_listdir then
-                  if vim.fn.isdirectory(msg.path) == 1 then
-                    on_listdir(msg.path)
+                  if vim.fn.isdirectory(path) == 1 then
+                    on_listdir(path)
                   else
-                    module.dirlist(msg.path, {})
+                    module.dirlist(path, {})
                   end
                 end
               end)
@@ -105,11 +131,15 @@ function module.init(on_exit, on_open_file, on_listdir)
   end
 
   module.scroll = function(line)
-    chansend(channel, message({ 'scroll', line }))
+    chansend(channel, message({ 'scroll', tostring(line) }))
   end
 
   module.base = function(path)
     chansend(channel, message({ 'base', path }))
+  end
+
+  module.document = function(document_id)
+    chansend(channel, message({ 'document', tostring(document_id) }))
   end
 
   module.dirlist = function(path, entries)
