@@ -53,7 +53,7 @@ function module.setup()
   }, args)
 end
 
-function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab)
+function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab, on_source)
   if channel then
     return
   end
@@ -85,6 +85,20 @@ function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab
                 and document_id == math.floor(document_id)
               then
                 vim.schedule(function() on_scroll(scroll_line, document_id) end)
+              end
+            elseif msg.action == 'source' then
+              local source_line = tonumber(msg.line)
+              local document_id = tonumber(msg.documentId)
+              if
+                on_source
+                and source_line
+                and source_line >= 1
+                and source_line == math.floor(source_line)
+                and document_id
+                and document_id >= 1
+                and document_id == math.floor(document_id)
+              then
+                vim.schedule(function() on_source(source_line, document_id) end)
               end
             elseif msg.action == 'selecttab' then
               local tab_id = tonumber(msg.tabId)

@@ -87,11 +87,13 @@ function setupClientMessages(socket: WebSocket) {
           }
           break;
         }
+        case 'source':
         case 'scroll': {
+          const action = msg.action;
           const line = msg.line;
           const documentId = msg.documentId;
           if (
-            syncScroll &&
+            (action === 'source' ? usefulWeb : syncScroll) &&
             typeof line === 'number' &&
             Number.isInteger(line) &&
             line >= 1 &&
@@ -100,7 +102,7 @@ function setupClientMessages(socket: WebSocket) {
             documentId >= 1
           ) {
             Deno.stdout.writeSync(
-              encoder.encode(JSON.stringify({ action: 'scroll', line, documentId }) + '\n'),
+              encoder.encode(JSON.stringify({ action, line, documentId }) + '\n'),
             );
           }
           break;

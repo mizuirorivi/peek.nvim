@@ -40,6 +40,14 @@ const md = new MarkdownIt('default', {
     },
   });
 
+function renderSourceAttrs(token: { attrGet(name: string): string | null }) {
+  return ['data-line-begin', 'data-source-line']
+    .map((name) => [name, token.attrGet(name)] as const)
+    .filter((entry): entry is readonly [string, string] => entry[1] !== null)
+    .map(([name, value]) => `${name}="${md.utils.escapeHtml(value)}"`)
+    .join(' ');
+}
+
 md.renderer.rules.link_open = (tokens, idx, options) => {
   const token = tokens[idx];
   const href = token.attrGet('href');
@@ -73,9 +81,7 @@ md.renderer.rules.math_block = (() => {
 
   return (tokens, idx, options, env, self) => {
     return `
-      <div
-        data-line-begin="${tokens[idx].attrGet('data-line-begin')}"
-      >
+      <div ${renderSourceAttrs(tokens[idx])}>
         ${math_block(tokens, idx, options, env, self)}
       </div>
     `;
@@ -87,9 +93,7 @@ md.renderer.rules.math_block_eqno = (() => {
 
   return (tokens, idx, options, env, self) => {
     return `
-      <div
-        data-line-begin="${tokens[idx].attrGet('data-line-begin')}"
-      >
+      <div ${renderSourceAttrs(tokens[idx])}>
         ${math_block_eqno(tokens, idx, options, env, self)}
       </div>
     `;
@@ -112,7 +116,7 @@ md.renderer.rules.fence = (() => {
       return `
         <div
           class="peek-mermaid-container"
-          data-line-begin="${token.attrGet('data-line-begin')}"
+          ${renderSourceAttrs(token)}
         >
           <div
             id="graph-mermaid-${env.genId(hashCode(content))}"
@@ -133,9 +137,11 @@ export function render(markdown: string) {
   const tokens = md.parse(markdown, {});
 
   tokens.forEach((token) => {
-    if (token.map && token.level === 0) {
-      token.attrSet('data-line-begin', String(token.map[0] + 1));
-    }
+    if (!token.map) return;
+
+    const sourceLine = String(token.map[0] + 1);
+    token.attrSet('data-source-line', sourceLine);
+    if (token.level === 0) token.attrSet('data-line-begin', sourceLine);
   });
 
   return md.renderer.render(tokens, md.options, { genId: uniqueIdGen() });

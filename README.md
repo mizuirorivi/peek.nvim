@@ -24,6 +24,7 @@ This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
 - Markdown File Explorer
 - Open Markdown files directly into a Neovim buffer
 - Viewer tabs synchronized with Neovim tabs
+- Click rendered blocks to return to their source
 - Disabled by default
 
 ### :sparkles: Features
@@ -35,6 +36,7 @@ This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
 - [Mermaid](https://github.com/mermaid-js/mermaid) diagrams
 - sidebar with table of contents and file explorer (`useful_web = true`)
 - synchronized Markdown tabs in the preview (`useful_web = true`)
+- click-to-source navigation (`useful_web = true`)
 
 ### :battery: Requirements
 
@@ -173,6 +175,10 @@ The tab bar above the preview mirrors Neovim tabs displaying Markdown files. Sel
 preview tab focuses the corresponding Neovim tab. Switching or closing tabs in Neovim
 updates the preview tab bar; tabs are closed from Neovim rather than from the preview.
 Run `:PeekSyncTabs` to manually resend the current Neovim tab state when needed.
+
+Click non-interactive rendered content to make its source window current in Neovim and
+move the cursor to the beginning of that source block. Links, controls, modified clicks,
+and text selection keep their normal browser behavior.
 
 ### :mag: Preview window
 

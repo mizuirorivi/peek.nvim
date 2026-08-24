@@ -97,8 +97,7 @@ local function open(bufnr)
     end
   end
 
-  local function on_browser_scroll(target_line, document_id)
-    if not config.get('sync_scroll_from_browser') then return end
+  local function move_preview_cursor(target_line, document_id, focus)
     if document_id ~= preview_id then return end
     if not previewed_bufnr or not vim.api.nvim_buf_is_valid(previewed_bufnr) then return end
 
@@ -115,8 +114,19 @@ local function open(bufnr)
 
     local last_line = vim.api.nvim_buf_line_count(previewed_bufnr)
     target_line = math.max(1, math.min(target_line, last_line))
+    if focus then vim.api.nvim_set_current_win(winid) end
     vim.api.nvim_win_set_cursor(winid, { target_line, 0 })
     vim.api.nvim_win_call(winid, function() vim.cmd('normal! zz') end)
+  end
+
+  local function on_browser_scroll(target_line, document_id)
+    if not config.get('sync_scroll_from_browser') then return end
+    move_preview_cursor(target_line, document_id, false)
+  end
+
+  local function on_source(target_line, document_id)
+    if not config.get('useful_web') then return end
+    move_preview_cursor(target_line, document_id, true)
   end
 
   local function on_select_tab(tabpage)
@@ -141,7 +151,7 @@ local function open(bufnr)
     if was_restarting then
       vim.schedule(function() open(previewed_bufnr) end)
     end
-  end, on_open_file, on_listdir, on_browser_scroll, on_select_tab)
+  end, on_open_file, on_listdir, on_browser_scroll, on_select_tab, on_source)
   app.document(preview_id)
   app.tabs(get_preview_tabs())
   app.base(vim.fn.fnamemodify(vim.uri_to_fname(vim.uri_from_bufnr(bufnr)), ':p:h'))

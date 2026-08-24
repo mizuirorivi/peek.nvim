@@ -227,6 +227,62 @@ addEventListener('DOMContentLoaded', () => {
     document.body.classList.add('peek-sidebar-active');
     document.body.append(sidebar, tocPanel, filesPanel, fileActions);
 
+    const interactiveSourceTargets = [
+      'a',
+      'button',
+      'input',
+      'select',
+      'textarea',
+      'option',
+      'label',
+      'summary',
+      'audio',
+      'video',
+      '[role="button"]',
+      '[role="link"]',
+      '[contenteditable]:not([contenteditable="false"])',
+      '[onclick]',
+    ].join(',');
+
+    function getSourceLine(target: Element) {
+      if (!source) return;
+
+      for (
+        let element: Element | null = target;
+        element && element !== markdownBody;
+        element = element.parentElement
+      ) {
+        for (const attribute of ['data-source-line', 'data-line-begin']) {
+          const line = Number(element.getAttribute(attribute));
+          if (Number.isInteger(line) && line >= 1 && line <= source.lcount) return line;
+        }
+      }
+    }
+
+    markdownBody.addEventListener('click', (event) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.altKey ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        documentId === undefined ||
+        socket.readyState !== WebSocket.OPEN ||
+        !window.getSelection()?.isCollapsed ||
+        !(event.target instanceof Element) ||
+        event.target.closest(interactiveSourceTargets)
+      ) {
+        return;
+      }
+
+      const line = getSourceLine(event.target);
+      if (line === undefined) return;
+
+      pendingBrowserLines.set(line, performance.now());
+      socket.send(JSON.stringify({ action: 'source', line, documentId }));
+    });
+
     function closeFileActions() {
       fileActions.classList.remove('open');
       fileActions.removeAttribute('data-path');
