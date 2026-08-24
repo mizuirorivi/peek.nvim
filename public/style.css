@@ -31,6 +31,10 @@ body.peek-sidebar-active.peek-panel-open {
   min-height: 100vh;
   overflow-x: hidden;
 }
+.markdown-body [id],
+.markdown-body [name] {
+  scroll-margin-top: 46px;
+}
 #peek-viewer-tabs {
   position: sticky;
   top: 0;
@@ -141,6 +145,11 @@ div[data-graph='mermaid']:has(> .peek-loader) {
   position: relative;
   height: 100%;
   min-height: 50px;
+}
+.peek-mermaid-error {
+  color: #d73a49;
+  padding: 1rem;
+  text-align: center;
 }
 #peek-zoom-label {
   position: fixed;
@@ -360,8 +369,13 @@ div[data-graph='mermaid']:has(> .peek-loader) {
 .peek-tree-item:hover {
   background: rgba(255, 255, 255, 0.08);
 }
-.peek-tree-item.peek-tree-selected {
+.peek-tree-item.peek-open-selected {
   background: rgba(255, 255, 255, 0.14);
+}
+.markdown-body a.peek-open-selected {
+  border-radius: 2px;
+  outline: 1px solid #888;
+  outline-offset: 2px;
 }
 #peek-file-actions {
   position: fixed;
@@ -395,6 +409,28 @@ div[data-graph='mermaid']:has(> .peek-loader) {
   outline: none;
   background: rgba(255, 255, 255, 0.14);
   color: #fff;
+}
+#peek-link-status {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 12px;
+  opacity: 0;
+  transform: translateY(8px);
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #252525;
+  color: #ddd;
+  font-family: sans-serif;
+  font-size: 12px;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 1200;
+}
+#peek-link-status.open {
+  opacity: 1;
+  transform: translateY(0);
 }
 .peek-tree-dir {
   color: #7ec8e3;
