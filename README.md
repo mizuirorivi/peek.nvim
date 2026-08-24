@@ -23,7 +23,7 @@ This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
 - Table of Contents in the preview window
 - Markdown File Explorer
 - Open Markdown files directly into a Neovim buffer
-- Optional tab mode
+- Viewer tabs synchronized with Neovim tabs
 - Disabled by default
 
 ### :sparkles: Features
@@ -34,6 +34,7 @@ This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
 - [TeX](https://github.com/KaTeX/KaTeX) math
 - [Mermaid](https://github.com/mermaid-js/mermaid) diagrams
 - sidebar with table of contents and file explorer (`useful_web = true`)
+- synchronized Markdown tabs in the preview (`useful_web = true`)
 
 ### :battery: Requirements
 
@@ -51,11 +52,12 @@ This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
     config = function()
         require("peek").setup({
             useful_web = true,  -- enable sidebar (table of contents + file explorer)
-            tab = false,        -- open files from sidebar in a new tab
+            tab = false,        -- fallback for clients without the open-location picker
             sync_scroll_from_browser = true,
         })
         vim.api.nvim_create_user_command("PeekOpen", require("peek").open, {})
         vim.api.nvim_create_user_command("PeekClose", require("peek").close, {})
+        vim.api.nvim_create_user_command("PeekSyncTabs", require("peek").sync_tabs, {})
     end,
 },
 ```
@@ -90,7 +92,7 @@ require('peek').setup({
 
   useful_web = false,       -- enable sidebar UI (table of contents + file explorer)
 
-  tab = false,              -- open files from the sidebar in a new Neovim tab
+  tab = false,              -- fallback when a file-open request omits its target
                             -- (requires useful_web = true)
 })
 ```
@@ -114,12 +116,14 @@ specify browser along with arguments:
 | open    | Open preview window                                 |
 | close   | Close preview window                                |
 | is_open | Returns `true` if preview window is currently open  |
+| sync_tabs | Resend Neovim's Markdown tabs to the preview      |
 
 Example command setup:
 
 ```lua
 vim.api.nvim_create_user_command('PeekOpen', require('peek').open, {})
 vim.api.nvim_create_user_command('PeekClose', require('peek').close, {})
+vim.api.nvim_create_user_command('PeekSyncTabs', require('peek').sync_tabs, {})
 ```
 
 The following keybinds are active when preview window is focused:
@@ -156,15 +160,19 @@ Two panels are available, toggled by buttons in the top-left corner of the previ
 | panel | description |
 |-|-|
 | Table of Contents | Lists all headings in the current document. Click to scroll to that heading. |
-| File Explorer     | Directory tree rooted at the current file's parent. Click a `.md` file to open it. |
+| File Explorer     | Directory tree rooted at the current file's parent. Click a `.md` file to choose where to open it. |
 
 The file explorer supports recursive directory expansion. Click `↑ ../` at the top of the
 panel to navigate to the parent directory. Opening a panel pushes the markdown content
 to the right instead of overlaying it.
 
-With `tab = true`, clicking a file in the explorer opens it in a new Neovim tab. If the
-file is already open in another tab, focus switches to that tab instead of creating a
-duplicate.
+Clicking a Markdown file opens a compact action picker. Choose `>` to replace the buffer
+in the current Neovim tab or `+` to always open the file in a new tab.
+
+The tab bar above the preview mirrors Neovim tabs displaying Markdown files. Selecting a
+preview tab focuses the corresponding Neovim tab. Switching or closing tabs in Neovim
+updates the preview tab bar; tabs are closed from Neovim rather than from the preview.
+Run `:PeekSyncTabs` to manually resend the current Neovim tab state when needed.
 
 ### :mag: Preview window
 

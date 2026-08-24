@@ -17,6 +17,33 @@ local function get_buf_content(bufnr)
   return concat(nvim_buf_get_lines(bufnr, 0, -1, false), '\n'):gsub('%s*$', '')
 end
 
+local function get_preview_tabs()
+  local current_tabpage = vim.api.nvim_get_current_tabpage()
+  local tabs = {}
+
+  for _, tabpage in ipairs(vim.api.nvim_list_tabpages()) do
+    if vim.api.nvim_tabpage_is_valid(tabpage) then
+      local winid = vim.api.nvim_tabpage_get_win(tabpage)
+      local bufnr = vim.api.nvim_win_get_buf(winid)
+      if vim.tbl_contains(config.get('filetype'), vim.bo[bufnr].filetype) then
+        local path = vim.api.nvim_buf_get_name(bufnr)
+        table.insert(tabs, {
+          id = tabpage,
+          path = path,
+          label = path == '' and '[No Name]' or vim.fn.fnamemodify(path, ':t'),
+          active = tabpage == current_tabpage,
+        })
+      end
+    end
+  end
+
+  return tabs
+end
+
+local function send_tabs()
+  if augroup and app.tabs then app.tabs(get_preview_tabs()) end
+end
+
 local function open(bufnr)
   previewed_bufnr = bufnr
   previewed_winid = vim.api.nvim_get_current_win()
@@ -25,18 +52,25 @@ local function open(bufnr)
 
   local on_open_file, on_listdir
   if config.get('useful_web') then
-    on_open_file = function(path)
+    on_open_file = function(path, open_in_tab)
       local ft = vim.filetype.match({ filename = path:lower() })
       if not vim.tbl_contains(config.get('filetype'), ft) then return end
       local nbufnr = vim.fn.bufadd(path)
       vim.fn.bufload(nbufnr)
-      if config.get('tab') then
-        local wins = vim.fn.win_findbuf(nbufnr)
-        if #wins > 0 then
-          vim.api.nvim_set_current_win(wins[1])
-        else
+      local explicit_open_in_tab = open_in_tab == true
+      if open_in_tab == nil then open_in_tab = config.get('tab') end
+      if open_in_tab then
+        if explicit_open_in_tab then
           vim.cmd('tabnew')
           vim.api.nvim_set_current_buf(nbufnr)
+        else
+          local wins = vim.fn.win_findbuf(nbufnr)
+          if #wins > 0 then
+            vim.api.nvim_set_current_win(wins[1])
+          else
+            vim.cmd('tabnew')
+            vim.api.nvim_set_current_buf(nbufnr)
+          end
         end
       else
         vim.api.nvim_set_current_buf(nbufnr)
@@ -85,6 +119,21 @@ local function open(bufnr)
     vim.api.nvim_win_call(winid, function() vim.cmd('normal! zz') end)
   end
 
+  local function on_select_tab(tabpage)
+    if not vim.api.nvim_tabpage_is_valid(tabpage) then return end
+
+    local winid = vim.api.nvim_tabpage_get_win(tabpage)
+    local selected_bufnr = vim.api.nvim_win_get_buf(winid)
+    if not vim.tbl_contains(config.get('filetype'), vim.bo[selected_bufnr].filetype) then return end
+
+    vim.api.nvim_set_current_tabpage(tabpage)
+    if previewed_bufnr ~= selected_bufnr then
+      open(selected_bufnr)
+    else
+      send_tabs()
+    end
+  end
+
   app.init(function()
     augroup = nvim_del_augroup_by_id(augroup)
     local was_restarting = restarting
@@ -92,8 +141,9 @@ local function open(bufnr)
     if was_restarting then
       vim.schedule(function() open(previewed_bufnr) end)
     end
-  end, on_open_file, on_listdir, on_browser_scroll)
+  end, on_open_file, on_listdir, on_browser_scroll, on_select_tab)
   app.document(preview_id)
+  app.tabs(get_preview_tabs())
   app.base(vim.fn.fnamemodify(vim.uri_to_fname(vim.uri_from_bufnr(bufnr)), ':p:h'))
   app.show(get_buf_content(bufnr))
   app.scroll(line('.'))
@@ -130,6 +180,11 @@ local function open(bufnr)
     callback = function()
       app.scroll(line('.'))
     end,
+  })
+
+  nvim_create_autocmd({ 'TabEnter', 'TabClosed' }, {
+    group = augroup,
+    callback = function() vim.schedule(send_tabs) end,
   })
 
   if config.get('close_on_bdelete') then
@@ -190,6 +245,10 @@ end)
 
 module.is_open = ensure_init(function()
   return not not augroup
+end)
+
+module.sync_tabs = ensure_init(function()
+  send_tabs()
 end)
 
 module.set_useful_web = ensure_init(function(enabled)

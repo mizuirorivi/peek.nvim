@@ -53,7 +53,7 @@ function module.setup()
   }, args)
 end
 
-function module.init(on_exit, on_open_file, on_listdir, on_scroll)
+function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab)
   if channel then
     return
   end
@@ -86,11 +86,18 @@ function module.init(on_exit, on_open_file, on_listdir, on_scroll)
               then
                 vim.schedule(function() on_scroll(scroll_line, document_id) end)
               end
+            elseif msg.action == 'selecttab' then
+              local tab_id = tonumber(msg.tabId)
+              if on_select_tab and tab_id and tab_id >= 1 and tab_id == math.floor(tab_id) then
+                vim.schedule(function() on_select_tab(tab_id) end)
+              end
             elseif msg.action == 'open' and msg.path then
               local path = msg.path
+              local open_in_tab
+              if type(msg.tab) == 'boolean' then open_in_tab = msg.tab end
               vim.schedule(function()
                 if on_open_file and vim.fn.filereadable(path) == 1 then
-                  on_open_file(path)
+                  on_open_file(path, open_in_tab)
                 end
               end)
             elseif msg.action == 'listdir' and msg.path then
@@ -140,6 +147,10 @@ function module.init(on_exit, on_open_file, on_listdir, on_scroll)
 
   module.document = function(document_id)
     chansend(channel, message({ 'document', tostring(document_id) }))
+  end
+
+  module.tabs = function(tabs)
+    chansend(channel, message({ 'tabs', vim.json.encode(tabs) }))
   end
 
   module.dirlist = function(path, entries)

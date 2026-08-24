@@ -144,8 +144,16 @@ addEventListener('DOMContentLoaded', () => {
     isDir: boolean;
   }
 
+  interface ViewerTab {
+    id: number;
+    path: string;
+    label: string;
+    active: boolean;
+  }
+
   let usefulWebOnBase: ((basePath: string) => void) | undefined;
   let usefulWebOnDirlist: ((data: { path: string; entries: FileEntry[] }) => void) | undefined;
+  let usefulWebOnTabs: ((data: { tabs: ViewerTab[] }) => void) | undefined;
 
   if (peek.usefulWeb) {
     const pendingDirRequests = new Map<string, { container: HTMLElement; depth: number }>();
@@ -186,10 +194,93 @@ addEventListener('DOMContentLoaded', () => {
     const filesPanel = createPanel('Files', 'peek-files-panel');
     const filesTree = filesPanel.querySelector('.peek-panel-body') as HTMLElement;
 
+    const viewerTabs = document.createElement('div');
+    viewerTabs.id = 'peek-viewer-tabs';
+    viewerTabs.setAttribute('role', 'tablist');
+    viewerTabs.setAttribute('aria-label', 'Open Markdown files');
+    document.body.insertBefore(viewerTabs, markdownBody);
+
+    const fileActions = document.createElement('div');
+    fileActions.id = 'peek-file-actions';
+    fileActions.setAttribute('role', 'dialog');
+    fileActions.setAttribute('aria-label', 'Open Markdown file');
+
+    const openHereBtn = document.createElement('button');
+    openHereBtn.type = 'button';
+    openHereBtn.className = 'peek-file-action';
+    openHereBtn.textContent = '>';
+    openHereBtn.title = 'Open here';
+    openHereBtn.setAttribute('aria-label', 'Open here');
+
+    const openTabBtn = document.createElement('button');
+    openTabBtn.type = 'button';
+    openTabBtn.className = 'peek-file-action';
+    openTabBtn.textContent = '+';
+    openTabBtn.title = 'Open in new tab';
+    openTabBtn.setAttribute('aria-label', 'Open in new tab');
+
+    fileActions.append(openHereBtn, openTabBtn);
+
+    let selectedFile: FileEntry | undefined;
+    let selectedTreeItem: HTMLElement | undefined;
+
     document.body.classList.add('peek-sidebar-active');
-    document.body.append(sidebar, tocPanel, filesPanel);
+    document.body.append(sidebar, tocPanel, filesPanel, fileActions);
+
+    function closeFileActions() {
+      fileActions.classList.remove('open');
+      fileActions.removeAttribute('data-path');
+      selectedTreeItem?.classList.remove('peek-tree-selected');
+      selectedFile = undefined;
+      selectedTreeItem = undefined;
+    }
+
+    function showFileActions(entry: FileEntry, item: HTMLElement) {
+      if (selectedFile?.path === entry.path && fileActions.classList.contains('open')) {
+        closeFileActions();
+        return;
+      }
+
+      closeFileActions();
+      selectedFile = entry;
+      selectedTreeItem = item;
+      selectedTreeItem.classList.add('peek-tree-selected');
+      fileActions.dataset.path = entry.path;
+      fileActions.classList.add('open');
+
+      const itemRect = item.getBoundingClientRect();
+      const actionsRect = fileActions.getBoundingClientRect();
+      const left = Math.min(
+        Math.max(8, itemRect.right - actionsRect.width),
+        window.innerWidth - actionsRect.width - 8,
+      );
+      const top = itemRect.bottom + actionsRect.height + 4 <= window.innerHeight
+        ? itemRect.bottom + 4
+        : itemRect.top - actionsRect.height - 4;
+
+      fileActions.style.left = `${left}px`;
+      fileActions.style.top = `${Math.max(8, top)}px`;
+      openHereBtn.focus();
+    }
+
+    function openSelectedFile(tab: boolean) {
+      if (!selectedFile) return;
+      socket.send(JSON.stringify({ action: 'openfile', path: selectedFile.path, tab }));
+      closeFileActions();
+    }
+
+    openHereBtn.addEventListener('click', () => openSelectedFile(false));
+    openTabBtn.addEventListener('click', () => openSelectedFile(true));
+    filesTree.addEventListener('scroll', closeFileActions);
+    document.addEventListener('pointerdown', (event) => {
+      const target = event.target as Node;
+      if (!fileActions.contains(target) && !selectedTreeItem?.contains(target)) {
+        closeFileActions();
+      }
+    });
 
     function closeAllPanels() {
+      closeFileActions();
       tocPanel.classList.remove('open');
       filesPanel.classList.remove('open');
       tocBtn.classList.remove('active');
@@ -198,7 +289,51 @@ addEventListener('DOMContentLoaded', () => {
     }
     usefulWebCloseAllPanels = closeAllPanels;
 
+    function renderViewerTabs(tabs: ViewerTab[]) {
+      viewerTabs.replaceChildren();
+      if (tabs.length === 0) {
+        viewerTabs.classList.remove('open');
+        return;
+      }
+
+      viewerTabs.classList.add('open');
+      let activeButton: HTMLButtonElement | undefined;
+
+      tabs.forEach((tab) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'peek-viewer-tab';
+        button.dataset.tabId = String(tab.id);
+        button.textContent = tab.label;
+        button.title = tab.path;
+        button.setAttribute('role', 'tab');
+        button.setAttribute('aria-selected', String(tab.active));
+        button.addEventListener('click', () => {
+          socket.send(JSON.stringify({ action: 'selecttab', tabId: tab.id }));
+        });
+
+        if (tab.active) {
+          button.classList.add('active');
+          activeButton = button;
+        }
+
+        viewerTabs.appendChild(button);
+      });
+
+      if (activeButton) {
+        const left = activeButton.offsetLeft;
+        const right = left + activeButton.offsetWidth;
+        if (left < viewerTabs.scrollLeft) viewerTabs.scrollLeft = left;
+        if (right > viewerTabs.scrollLeft + viewerTabs.clientWidth) {
+          viewerTabs.scrollLeft = right - viewerTabs.clientWidth;
+        }
+      }
+
+      if (scroll) onScroll(scroll);
+    }
+
     function initFilesTree() {
+      closeFileActions();
       filesTree.innerHTML = '';
       if (!rootDirPath) return;
       const parentPath = rootDirPath.replace(/\/[^/]+$/, '') || rootDirPath;
@@ -254,8 +389,16 @@ addEventListener('DOMContentLoaded', () => {
           });
           container.append(item, children);
         } else if (/\.mdx?$|\.markdown$/i.test(entry.name)) {
+          item.title = 'Choose where to open';
+          item.setAttribute('role', 'button');
+          item.tabIndex = 0;
           item.addEventListener('click', () => {
-            socket.send(JSON.stringify({ action: 'openfile', path: entry.path }));
+            showFileActions(entry, item);
+          });
+          item.addEventListener('keydown', (event) => {
+            if (event.key !== 'Enter' && event.key !== ' ') return;
+            event.preventDefault();
+            showFileActions(entry, item);
           });
           container.appendChild(item);
         } else {
@@ -305,6 +448,10 @@ addEventListener('DOMContentLoaded', () => {
       }
     };
 
+    usefulWebOnTabs = (data) => {
+      renderViewerTabs(Array.isArray(data.tabs) ? data.tabs : []);
+    };
+
     usefulWebOnPreviewDone = () => {
       if (tocPanel.classList.contains('open')) buildToc();
     };
@@ -313,7 +460,7 @@ addEventListener('DOMContentLoaded', () => {
 
   socket.onmessage = (event) => {
     const data = JSON.parse(decoder.decode(event.data));
-    if (['show', 'scroll', 'base', 'document'].includes(data.action)) {
+    if (['show', 'scroll', 'base', 'document', 'tabs'].includes(data.action)) {
       receivedServerState = true;
     }
 
@@ -326,6 +473,9 @@ addEventListener('DOMContentLoaded', () => {
         break;
       case 'document':
         onDocument(data);
+        break;
+      case 'tabs':
+        usefulWebOnTabs?.(data);
         break;
       case 'base':
         base.href = data.base;

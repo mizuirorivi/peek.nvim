@@ -25,7 +25,7 @@ interface ClientMessage {
 
 const clientEncoder = new TextEncoder();
 const clientState = new Map<string, ClientMessage>();
-const replayOrder = ['document', 'base', 'show', 'scroll'];
+const replayOrder = ['document', 'tabs', 'base', 'show', 'scroll'];
 let activeSocket: WebSocket | undefined;
 let inputTask: Promise<void> | undefined;
 
@@ -78,6 +78,15 @@ function setupClientMessages(socket: WebSocket) {
         typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data),
       );
       switch (msg.action) {
+        case 'selecttab': {
+          const tabId = msg.tabId;
+          if (typeof tabId === 'number' && Number.isInteger(tabId) && tabId >= 1) {
+            Deno.stdout.writeSync(
+              encoder.encode(JSON.stringify({ action: 'selecttab', tabId }) + '\n'),
+            );
+          }
+          break;
+        }
         case 'scroll': {
           const line = msg.line;
           const documentId = msg.documentId;
@@ -99,7 +108,12 @@ function setupClientMessages(socket: WebSocket) {
         case 'listdir':
         case 'openfile': {
           const action = msg.action === 'openfile' ? 'open' : 'listdir';
-          Deno.stdout.writeSync(encoder.encode(JSON.stringify({ action, path: msg.path }) + '\n'));
+          const payload = {
+            action,
+            path: msg.path,
+            ...(msg.action === 'openfile' && typeof msg.tab === 'boolean' ? { tab: msg.tab } : {}),
+          };
+          Deno.stdout.writeSync(encoder.encode(JSON.stringify(payload) + '\n'));
           break;
         }
       }
@@ -143,6 +157,11 @@ async function init() {
       case 'document': {
         documentId = Number(decoder.decode((await generator.next()).value!));
         sendClientMessage({ action, documentId });
+        break;
+      }
+      case 'tabs': {
+        const tabs = JSON.parse(decoder.decode((await generator.next()).value!));
+        sendClientMessage({ action, tabs });
         break;
       }
       case 'base': {
