@@ -1,43 +1,62 @@
+local unpack = unpack or table.unpack
+
 return function(fn, timeout)
-  return setmetatable({
+  local pending
+  local generation = 0
+
+  local self = {
     timer = nil,
     timeout = timeout,
-    set_timeout = function(self, new_timeout)
-      self.timeout = new_timeout
-    end,
-    clear = function(self)
+  }
+
+  local function stop_timer()
+    if not self.timer then
+      return
+    end
+    self.timer:stop()
+    if not self.timer:is_closing() then
+      self.timer:close()
+    end
+    self.timer = nil
+  end
+
+  local function arm()
+    local current_generation = generation
+    self.timer = vim.defer_fn(function()
+      if current_generation ~= generation then
+        return
+      end
+      self.timer = nil
+      if not pending then
+        return
+      end
+
+      local args = pending
+      pending = nil
+      fn(unpack(args))
+      arm()
+    end, self.timeout or 10)
+  end
+
+  function self:set_timeout(new_timeout)
+    self.timeout = new_timeout
+  end
+
+  function self:clear()
+    generation = generation + 1
+    stop_timer()
+    pending = nil
+  end
+
+  return setmetatable(self, {
+    __call = function(_, ...)
       if self.timer then
-        self.timer:stop()
-        if not self.timer:is_closing() then
-          self.timer:close()
-        end
+        pending = { ... }
+        return
       end
+
+      fn(...)
+      arm()
     end,
-  }, {
-    __call = (function()
-      local busy, pending, args = false, false, nil
-      local defer_fn = vim.defer_fn
-
-      local function exec(self, ...)
-        fn(...)
-        self.timer = defer_fn(function()
-          if not pending then
-            busy = false
-            return
-          end
-          exec(self, args)
-          pending = false
-        end, self.timeout or 10)
-      end
-
-      return function(self, ...)
-        if busy then
-          pending, args = true, ...
-          return
-        end
-        busy = true
-        exec(self, ...)
-      end
-    end)(),
   })
 end

@@ -53,7 +53,7 @@ function module.setup()
   }, args)
 end
 
-function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab, on_source)
+function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab, on_source, on_render)
   if channel then
     return
   end
@@ -64,7 +64,9 @@ function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab
     cwd = cwd,
     stderr_buffered = true,
     on_stdout = function(_, data)
-      if not data or #data == 0 then return end
+      if not data or #data == 0 then
+        return
+      end
       data[1] = stdout_buffer .. data[1]
       stdout_buffer = table.remove(data) or ''
 
@@ -75,6 +77,7 @@ function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab
             if msg.action == 'scroll' then
               local scroll_line = tonumber(msg.line)
               local document_id = tonumber(msg.documentId)
+              local version = tonumber(msg.version)
               if
                 on_scroll
                 and scroll_line
@@ -83,12 +86,18 @@ function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab
                 and document_id
                 and document_id >= 1
                 and document_id == math.floor(document_id)
+                and version
+                and version >= 0
+                and version == math.floor(version)
               then
-                vim.schedule(function() on_scroll(scroll_line, document_id) end)
+                vim.schedule(function()
+                  on_scroll(scroll_line, document_id, version)
+                end)
               end
             elseif msg.action == 'source' then
               local source_line = tonumber(msg.line)
               local document_id = tonumber(msg.documentId)
+              local version = tonumber(msg.version)
               if
                 on_source
                 and source_line
@@ -97,21 +106,66 @@ function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab
                 and document_id
                 and document_id >= 1
                 and document_id == math.floor(document_id)
+                and version
+                and version >= 0
+                and version == math.floor(version)
               then
-                vim.schedule(function() on_source(source_line, document_id) end)
+                vim.schedule(function()
+                  on_source(source_line, document_id, version)
+                end)
               end
             elseif msg.action == 'selecttab' then
               local tab_id = tonumber(msg.tabId)
               if on_select_tab and tab_id and tab_id >= 1 and tab_id == math.floor(tab_id) then
-                vim.schedule(function() on_select_tab(tab_id) end)
+                vim.schedule(function()
+                  on_select_tab(tab_id)
+                end)
               end
-            elseif msg.action == 'open' and msg.path then
+            elseif msg.action == 'render' then
+              local document_id = tonumber(msg.documentId)
+              local version = tonumber(msg.version)
+              if
+                on_render
+                and document_id
+                and document_id >= 1
+                and document_id == math.floor(document_id)
+                and type(msg.documentKey) == 'string'
+                and version
+                and version >= 0
+                and version == math.floor(version)
+              then
+                local document_key = msg.documentKey
+                vim.schedule(function()
+                  on_render(document_id, document_key, version)
+                end)
+              end
+            elseif msg.action == 'open' and type(msg.path) == 'string' then
               local path = msg.path
               local open_in_tab
-              if type(msg.tab) == 'boolean' then open_in_tab = msg.tab end
+              if type(msg.tab) == 'boolean' then
+                open_in_tab = msg.tab
+              end
+              local document_id = tonumber(msg.documentId)
+              local version = tonumber(msg.version)
+              local fragment
+              if type(msg.fragment) == 'string' then
+                fragment = msg.fragment
+              end
               vim.schedule(function()
-                if on_open_file and vim.fn.filereadable(path) == 1 then
-                  on_open_file(path, open_in_tab)
+                if
+                  on_open_file
+                  and document_id
+                  and document_id >= 1
+                  and document_id == math.floor(document_id)
+                  and version
+                  and version >= 0
+                  and version == math.floor(version)
+                  and vim.fn.filereadable(path) == 1
+                then
+                  local ok, err = pcall(on_open_file, path, open_in_tab, document_id, version, fragment)
+                  if not ok then
+                    vim.notify('Peek link error: ' .. tostring(err), vim.log.levels.ERROR)
+                  end
                 end
               end)
             elseif msg.action == 'listdir' and msg.path then
@@ -147,24 +201,80 @@ function module.init(on_exit, on_open_file, on_listdir, on_scroll, on_select_tab
     end,
   })
 
-  module.show = function(content)
-    chansend(channel, message({ 'show', content }))
+  module.show = function(document_id, document_key, version, content)
+    chansend(
+      channel,
+      message({
+        'show',
+        tostring(document_id),
+        document_key,
+        tostring(version),
+        content,
+      })
+    )
   end
 
-  module.scroll = function(line)
-    chansend(channel, message({ 'scroll', tostring(line) }))
+  module.restore = function(document_id, document_key, version)
+    chansend(channel, message({ 'restore', tostring(document_id), document_key, tostring(version) }))
+  end
+
+  module.updating = function(document_id, document_key, version)
+    chansend(
+      channel,
+      message({
+        'updating',
+        tostring(document_id),
+        document_key,
+        tostring(version),
+      })
+    )
+  end
+
+  module.scroll = function(document_id, document_key, version, line)
+    chansend(
+      channel,
+      message({
+        'scroll',
+        tostring(document_id),
+        document_key,
+        tostring(version),
+        tostring(line),
+      })
+    )
   end
 
   module.base = function(path)
     chansend(channel, message({ 'base', path }))
   end
 
-  module.document = function(document_id)
-    chansend(channel, message({ 'document', tostring(document_id) }))
+  module.document = function(document_id, document_key, version, path)
+    chansend(
+      channel,
+      message({
+        'document',
+        tostring(document_id),
+        document_key,
+        tostring(version),
+        path,
+      })
+    )
   end
 
   module.tabs = function(tabs)
     chansend(channel, message({ 'tabs', vim.json.encode(tabs) }))
+  end
+
+  module.navigate = function(document_id, document_key, version, fragment)
+    chansend(
+      channel,
+      message({
+        'navigate',
+        tostring(document_id),
+        document_key,
+        tostring(version),
+        fragment,
+      })
+    )
   end
 
   module.dirlist = function(path, entries)

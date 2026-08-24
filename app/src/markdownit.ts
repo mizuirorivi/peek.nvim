@@ -1,13 +1,14 @@
 import { hashCode, uniqueIdGen } from './util.ts';
 import { parseArgs } from 'https://deno.land/std@0.217.0/cli/parse_args.ts';
 import { default as highlight } from 'https://cdn.skypack.dev/highlight.js@11.9.0';
-// @deno-types="https://esm.sh/v135/@types/markdown-it@13.0.7/index.d.ts";
+// @deno-types="https://esm.sh/@types/markdown-it@14.1.2/index.d.ts";
 import MarkdownIt from 'https://esm.sh/markdown-it@14.0.0';
 import { full as MarkdownItEmoji } from 'https://esm.sh/markdown-it-emoji@3.0.0';
 import { default as MarkdownItFootnote } from 'https://esm.sh/markdown-it-footnote@4.0.0';
 import { default as MarkdownItTaskLists } from 'https://esm.sh/markdown-it-task-lists@2.1.1';
 import { default as MarkdownItTexmath } from 'https://esm.sh/markdown-it-texmath@1.0.0';
 import Katex from 'https://esm.sh/katex@0.16.9';
+import GithubSlugger from 'https://esm.sh/github-slugger@2.0.0';
 
 const __args = parseArgs(Deno.args);
 
@@ -41,40 +42,12 @@ const md = new MarkdownIt('default', {
   });
 
 function renderSourceAttrs(token: { attrGet(name: string): string | null }) {
-  return ['data-line-begin', 'data-source-line']
+  return ['data-line-begin', 'data-source-line', 'data-peek-source']
     .map((name) => [name, token.attrGet(name)] as const)
     .filter((entry): entry is readonly [string, string] => entry[1] !== null)
     .map(([name, value]) => `${name}="${md.utils.escapeHtml(value)}"`)
     .join(' ');
 }
-
-md.renderer.rules.link_open = (tokens, idx, options) => {
-  const token = tokens[idx];
-  const href = token.attrGet('href');
-
-  if (href && href.startsWith('#')) {
-    token.attrSet('onclick', `location.hash='${href}'`);
-  }
-
-  token.attrSet('href', 'javascript:return');
-
-  return md.renderer.renderToken(tokens, idx, options);
-};
-
-md.renderer.rules.heading_open = (tokens, idx, options) => {
-  tokens[idx].attrSet(
-    'id',
-    tokens[idx + 1].content
-      .trim()
-      .split(' ')
-      .filter((a) => a)
-      .join('-')
-      .replace(/[^a-z0-9-]/gi, '')
-      .toLowerCase(),
-  );
-
-  return md.renderer.renderToken(tokens, idx, options);
-};
 
 md.renderer.rules.math_block = (() => {
   const math_block = md.renderer.rules.math_block!;
@@ -121,8 +94,10 @@ md.renderer.rules.fence = (() => {
           <div
             id="graph-mermaid-${env.genId(hashCode(content))}"
             data-graph="mermaid"
-            data-graph-definition="${escapeHtml(match?.groups?.content || '')}"
           >
+            <pre class="peek-mermaid-definition" hidden>${
+        escapeHtml(match?.groups?.content || '')
+      }</pre>
             <div class="peek-loader"></div>
           </div>
         </div>
@@ -133,15 +108,29 @@ md.renderer.rules.fence = (() => {
   };
 })();
 
-export function render(markdown: string) {
+export function render(markdown: string, sourceToken = crypto.randomUUID()) {
   const tokens = md.parse(markdown, {});
+  const slugger = new GithubSlugger();
 
-  tokens.forEach((token) => {
+  tokens.forEach((token, index) => {
+    if (token.type === 'heading_open') {
+      const inline = tokens[index + 1];
+      const heading = inline.children
+        ?.map((child) => {
+          if (child.type === 'html_inline') return '';
+          if (child.type === 'softbreak' || child.type === 'hardbreak') return ' ';
+          return child.content;
+        })
+        .join('') || inline.content;
+      token.attrSet('id', `peek-heading-${slugger.slug(heading)}`);
+    }
+
     if (!token.map) return;
 
     const sourceLine = String(token.map[0] + 1);
     token.attrSet('data-source-line', sourceLine);
     if (token.level === 0) token.attrSet('data-line-begin', sourceLine);
+    token.attrSet('data-peek-source', sourceToken);
   });
 
   return md.renderer.render(tokens, md.options, { genId: uniqueIdGen() });
