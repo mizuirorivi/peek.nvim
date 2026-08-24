@@ -25,6 +25,7 @@ This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
 - Open Markdown files directly into a Neovim buffer
 - Viewer tabs synchronized with Neovim tabs
 - Click rendered blocks to return to their source
+- Safe routing for fragments, Markdown files, and external links
 - Disabled by default
 
 ### :sparkles: Features
@@ -37,6 +38,7 @@ This fork adds a lightweight bridge between Markdown viewing and Neovim editing:
 - sidebar with table of contents and file explorer (`useful_web = true`)
 - synchronized Markdown tabs in the preview (`useful_web = true`)
 - click-to-source navigation (`useful_web = true`)
+- routed Markdown and external links (`useful_web = true`)
 
 ### :battery: Requirements
 
@@ -179,6 +181,18 @@ Run `:PeekSyncTabs` to manually resend the current Neovim tab state when needed.
 Click non-interactive rendered content to make its source window current in Neovim and
 move the cursor to the beginning of that source block. Links, controls, modified clicks,
 and text selection keep their normal browser behavior.
+
+Links are routed without replacing the preview page:
+
+| target | behavior |
+|-|-|
+| Same-document fragment | Scroll to the target every time it is activated. |
+| Relative or absolute Markdown file | Choose `>` or `+`; modified and middle clicks use `+`. |
+| HTTP(S), `mailto:`, or `tel:` | Open in a browser tab or with the system handler. |
+| Missing, unsafe, or local non-Markdown target | Block and show a status message. |
+
+Link routing is disabled together with the rest of the navigation UI when
+`useful_web = false`.
 
 ### :mag: Preview window
 
